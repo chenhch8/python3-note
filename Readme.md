@@ -617,10 +617,10 @@ with open('/path/to/file', 'r') as f:
 ```
 3. `open(filename[,limit])`：`limit`有如下选项：
 ```
-'r'：读权限
-'w'：写权限
-'rb'：二进制文件读权限
-'wb'：二进制文件写权限
+'r'：读权限，读取的是str
+'w'：写权限，写入的是str
+'rb'：二进制文件读权限，读取的是bytes
+'wb'：二进制文件写权限，写入的是bytes
 encoding='gbk'：打开gdk编码的文件
 
 ```
@@ -675,7 +675,7 @@ b'\xe4\xb8\xad\xe6\x96\x87'
 # 拼接路径名:
 >>> os.path.join('/Users/michael', 'testdir')
 '/Users/michael/testdir'
-# 然后创建一个目录:
+# 创建一个目录:
 >>> os.mkdir('/Users/michael/testdir')
 # 删掉一个目录:
 >>> os.rmdir('/Users/michael/testdir')
@@ -695,4 +695,180 @@ b'\xe4\xb8\xad\xe6\x96\x87'
 # 列出当前目录下所有.py文件
 >>> [x for x in os.listdir('.') if os.path.isfile(x) and os.path.splitext(x)[1]=='.py']
 ['apis.py', 'config.py', 'models.py', 'pymonitor.py', 'test_db.py', 'urls.py', 'wsgiapp.py']
+```
+7. 序列化：pickling，把变量从内存中变成可存储或传输的过程，即序列化之后，就可以把序列化后的内容写入磁盘或通过网络传输到其它机器<br />
+反序列化：unpickling
+**pickle.dumps(variable)**：将任意类型的变量序列化成bytes <br />
+**pickle.dump(variable, file)**：将任意类型的变量序列化成bytes并保存进file中
+**pickle.load(file)**：读取二进制文件并反序列化
+```python
+import pickle
+# 序列化
+d = dict(name='chenhch8', age=20)
+with open('dump.txt', 'wb') as f:
+    # 法一、pickle.dumps()
+    pk = pickle.dumps(d)
+    f.write(pk) # 写入
+    # 法二
+    pickle.dump(d, f)
+# 反序列化
+with open('dump.txt', 'rb') as f:
+    d = pickle.load(f) # d = { name: 'chenhch8',age: 20 }
+```
+注意：Pickle的问题和所有其他编程语言特有的序列化问题一样，就是它只能用于Python，并且可能不同版本的Python彼此都不兼容，因此，只能用Pickle保存那些不重要的数据，不能成功地反序列化也没关系。
+
+8. JSON类型：把对象序列化为标准格式，用于不同编程语言之间或网络传输传递对象<br />
+**json.dumps(dict)**：将dict转变成str，并返回str<br />
+**json.dump(dict, file)**：将dict转变成str并存入到文件file中<br />
+**json.loads(str)**：将str反序列化成dict
+
+| JSON类型 | Python类型 |
+| ：----： | ：----： |
+| {} | dict |
+| [] | list |
+| 'string' | str |
+| 1234.56 | int 或 float |
+| true/false | True/False |
+| null | None |
+```python
+import json
+# [1] 序列化
+d = dict(name='Bob', age=20, score=88)
+# dumps()方法返回一个str，内容就是标准的JSON
+js = json.dumps(d) # '{"age": 20, "score": 88, "name": "Bob"}'
+with open('text.txt', 'w') as f:
+    f.write(js)
+# dump()
+with open('text.txt', 'w') as f:
+    json.dump(d, f)
+
+# [2] 反序列化
+json_str = '{"age": 20, "score": 88, "name": "Bob"}'
+json.loads(json_str) # {'age': 20, 'score': 88, 'name': 'Bob'}
+```
+
+### 多线程与多进程
+#### 多进程
+1. `os.fork()`：每调用一次，返回两次——操作系统自动把当前进程(父进程)**复制**一份(子进程)，然后，分别在父进程和子进程内返回。子进程永远返回0，父进程返回的是子进程的ID。子进程调用`os.getppid()`即可获取父进程ID。进程通过`os.getpid()`即可获得自己的进程ID。
+```python
+import os
+
+print('Process (%s) start...' % os.getpid())
+# only works on Unix/Linux
+pid = os.fork()
+if pid == 0: # 子进程
+    print('I am child process (%s) and my parent is %s.' % (os.getpid(), os.getppid()))
+else:
+    print('I (%s) just created a child process.' % (os.getpid(), pid))
+
+# output
+Process (876) start...
+I (876) just created a child process (877).
+I am child process (877) and my parent is 876.
+```
+2. `multiprocessing`：跨平台多进程模块，该模块提供了一个Process类来代表一个进程对象
+```python
+from multiprocessing import Process
+import os, time, random
+
+# 子进程要执行的代码
+def run_proc(name):
+    print('Run child process %s (%s)...' % (name, os.getpid()))
+
+if __name__=='__main__':
+    print('Parent process %s.' % os.getpid())
+    p = Process(target=run_proc, args=('test',)) # 传入任务(即函数),和函数参数
+    print('Child process will start.')
+    p.start() # 启动子进程
+    p.join() # 等待子进程结束
+    print('Child process end.')
+# output
+Parent process 928.
+Process will start.
+Run child process test (929)...
+Process end.
+```
+注：创建子进程时，只需要传入一个执行函数和函数的参数，创建一个Process实例，用start()方法启动，join()方法可以等待子进程结束后再继续往下运行，通常用于进程间的同步。
+
+3. `Pool`：创建进程池
+```python
+from multiprocessing import Pool
+import os, time, random
+
+def long_time_task(name):
+    print('Run task %s (%s)...' % (name, os.getpid()))
+    start = time.time()
+    time.sleep(random.random() * 3)
+    end = time.time()
+    print('Task %s runs %0.2f seconds.' % (name, (end - start)))
+
+if __name__=='__main__':
+    print('Parent process %s.' % os.getpid())
+    p = Pool(4)
+    for i in range(5):
+        p.apply_async(long_time_task, args=(i,))
+    print('Waiting for all subprocesses done...')
+    p.close()
+    p.join()
+    print('All subprocesses done.')
+
+# output
+Parent process 669.
+Waiting for all subprocesses done...
+Run task 0 (671)...
+Run task 1 (672)...
+Run task 2 (673)...
+Run task 3 (674)...
+Task 2 runs 0.14 seconds.
+Run task 4 (673)...
+Task 1 runs 0.27 seconds.
+Task 3 runs 0.86 seconds.
+Task 0 runs 1.41 seconds.
+Task 4 runs 1.91 seconds.
+All subprocesses done.
+```
+注：对Pool对象调用join()方法会等待所有子进程执行完毕，调用join()之前必须先调用close()，调用close()之后就不能继续添加新的Process了。（Pool的默认大小是CPU的核数）
+4. 进程间通信：`Queue`、`Pipes`方式交换数据
+```python
+from multiprocessing import Process, Queue
+import os, time, random
+
+# 写数据进程执行的代码:
+def write(q):
+    print('Process to write: %s' % os.getpid())
+    for value in ['A', 'B', 'C']:
+        print('Put %s to queue...' % value)
+        q.put(value)
+        time.sleep(random.random())
+
+# 读数据进程执行的代码:
+def read(q):
+    print('Process to read: %s' % os.getpid())
+    while True:
+        value = q.get(True)
+        print('Get %s from queue.' % value)
+
+if __name__=='__main__':
+    # 父进程创建Queue，并传给各个子进程：
+    q = Queue()
+    pw = Process(target=write, args=(q,))
+    pr = Process(target=read, args=(q,))
+    # 启动子进程pw，写入:
+    pw.start()
+    # 启动子进程pr，读取:
+    pr.start()
+    # 等待pw结束:
+    pw.join()
+    # pr进程里是死循环，无法等待其结束，只能强行终止:
+    pr.terminate()
+
+# output
+Process to write: 50563
+Put A to queue...
+Process to read: 50564
+Get A from queue.
+Put B to queue...
+Get B from queue.
+Put C to queue...
+Get C from queue.
 ```
