@@ -6,6 +6,13 @@
 4. set
 5. int、float、str、boolean
 
+### Iterable 和 Iterator
+1. 凡是可以for循环的，都是Iterable<br />
+凡是可以next()的，都是Iterator
+集合数据类型如list，truple，dict，str，都是Iterable不是Iterator，但可以通过iter()函数获得一个Iterator对象<br />
+Python中的for循环就是通过next实现的
+2. Iterable不是Iterator，Iterator是Iterable
+
 ### 函数参数
 1. 参数缺省值：`def myFun(arge = ?)`
 2. 可变参数：`def myFun(*arge)`。若已经有一个list或tuple时，要调用一个可变参数函数时，可采用如下方式：
@@ -1238,3 +1245,246 @@ deque(['y', 'a', 'b', 'c', 'x'])
 >>> c
 Counter({'g': 2, 'm': 2, 'r': 2, 'a': 1, 'i': 1, 'o': 1, 'n': 1, 'p': 1})
 ```
+
+#### `base64`
+1. 一种最常见的二进制编码方法，即将二进制到字符串的转变方法
+2. 编码方法：
+    1. 准备一个包含64个字符的数组Array：`['A','B',..,'a','b',..,'0','1',..,'+','/']`
+    2. 对二进制数据，每3个字节为一组，共24个bit
+    3. 将24个bit划分为4份，即每份4个bit，对应4个数，`n,m,i,j`
+    4. 将这4个数作为索引，找到四个字符：`Array[n]、Array[m]、Array[i]、Array[j]`，这就是编码后的字符串
+    5. 若编码的二进制数据不是3的倍数，则在用`\x00`字节在末尾补足，再在编码的末尾加上1个或者2个`=`号，表示补了多少字节
+3. 例子：
+```python
+>>> import base64
+>>> base64.b64encode(b'binary\x00string')
+b'YmluYXJ5AHN0cmluZw=='
+>>> base64.b64decode(b'YmluYXJ5AHN0cmluZw==')
+b'binary\x00string'
+```
+由于标准的Base64编码后可能出现字符+和/，在URL中就不能直接作为参数，所以又有一种"url safe"的base64编码，其实就是把字符+和/分别变成-和_
+```python
+>>> base64.b64encode(b'i\xb7\x1d\xfb\xef\xff')
+b'abcd++//'
+>>> base64.urlsafe_b64encode(b'i\xb7\x1d\xfb\xef\xff')
+b'abcd--__'
+>>> base64.urlsafe_b64decode('abcd--__')
+b'i\xb7\x1d\xfb\xef\xff'
+```
+
+#### 摘要算法
+1. `hashlib`: `md5`、`sha1`等
+2. 例子：
+```python
+import hashlib
+
+# md5
+md5 = hashlib.md5()
+md5.update('how to use md5 in python hashlib?'.encode('utf-8'))
+print(md5.hexdigest())
+# output
+d26a53750bc40b38b65a520292f69306
+
+# SHA1
+sha1 = hashlib.sha1()
+sha1.update('how to use sha1 in '.encode('utf-8'))
+sha1.update('python hashlib?'.encode('utf-8'))
+print(sha1.hexdigest())
+```
+
+#### `contextlib`
+1. 对任何对象实现上下文管理，之后就可以使用`with`语句
+2. 三种方法：
+    1. 通过实现对象的`__enter__`和`__exit__`方法
+    2. 通过`contextlib`模块的`@contextmanager`
+    3. 通过`contextlib`模块的`closing`方法——将任意对象变为上下文对象，并支持`with`语句
+```python
+# 方法一
+class Query(object):
+
+    def __init__(self, name):
+        self.name = name
+    # 当创建这个对象时，会先调用这个方法
+    def __enter__(self):
+        print('Begin')
+        return self
+    # 当出错或者正常结束时，就会自动调用这个方法
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type:
+            print('Error')
+        else:
+            print('End')
+
+    def query(self):
+        print('Query info about %s...' % self.name)
+# 使用
+with Query('Bob') as q:
+    q.query()
+
+# 方法二
+from contextlib import contextmanager
+
+class Query(object):
+
+    def __init__(self, name):
+        self.name = name
+
+    def query(self):
+        print('Query info about %s...' % self.name)
+
+@contextmanager
+def create_query(name):
+    print('Begin')
+    q = Query(name)
+    yield q
+    print('End')
+# use
+with create_query('Bob') as q:
+    q.query()
+
+# 方法三
+from contextlib import closing
+from urllib.request import urlopen
+
+with closing(urlopen('https://www.python.org')) as page:
+    for line in page:
+        print(line)
+```
+注：`@contextmanager`这个decorator接受一个`generator`，用`yield`语句把`with ... as var`把变量输出出去，然后，`with`语句就可以正常地工作了<br />
+很多时候，我们希望在某段代码执行前后自动执行特定代码，也可以用`@contextmanager`实现。
+`@contextmanager`的执行顺序：**`yield`之前的语句 **$\rightarrow$ **`with`语句内部的语句** $\rightarrow$ **`yield`之后的语句**。如下：
+```python
+@contextmanager
+def tag(name):
+    print("<%s>" % name)
+    yield
+    print("</%s>" % name)
+
+with tag("h1"):
+    print("hello")
+    print("world")
+
+# output
+<h1>
+hello
+world
+</h1>
+```
+### 异步IO
+#### 协程
+1. 通过`yield`来实现
+2. 协程流程：当遇到`yield`时，生成器就会停下来，然后把`yield`右边的式子发送给调用生成器的地方；当调用生成器时，即调用`send(a)`时，调用者会停下来，然后进入到生成器中的`yield`处开始执行，同时参数a通过`yield`赋给`yield`左边的变量，具体看下面例子
+3. 例子：
+```python
+def generator():
+  print('gen_1')
+  i = yield 100
+  print('gen:', i)
+  # print('gen:', n)
+  yield 10
+
+def test(gen):
+  print('test_1')
+  i = gen.send(None) # 启动生成器
+  print('get_1:', i)
+  print('test_2')
+  i = gen.send(10000) # 切换到生成器中执行，同时将参数10000传到生成器中
+  print('get_2:', i)
+  gen.close() # 关闭生成器
+
+gen = generator()
+test(gen)
+
+# output
+test_1
+gen_1
+get_1: 100
+test_2
+gen: 10000
+get_2: 10
+```
+注：整个流程无锁，由一个线程执行，generator和test协作完成任务，所以称为“协程”，而非线程的抢占式多任务。
+
+#### `asyncio`
+1. `用于对异步IO的支持
+2. `yield`和`yield from`的区别：
+    1. `yield`的右边可以是任何对象，即使不是Iterable
+    2. `yield from`是基于**消息通知**的，它右边必须是Iterable
+3. 使用过程：
+    1. `@asyncio.coroutine`
+    2. `asyncio.get_event_loop()`
+    3. `run_until_complete()`
+    4. `close()`
+4. 例子：
+```python
+import asyncio
+
+@asyncio.coroutine
+def wget(host):
+    print('wget %s...' % host)
+    connect = asyncio.open_connection(host, 80)
+    reader, writer = yield from connect
+    header = 'GET / HTTP/1.0\r\nHost: %s\r\n\r\n' % host
+    writer.write(header.encode('utf-8'))
+    yield from writer.drain()
+    while True:
+        line = yield from reader.readline()
+        if line == b'\r\n':
+            break
+        print('%s header > %s' % (host, line.decode('utf-8').rstrip()))
+    # Ignore the body, close the socket
+    writer.close()
+
+loop = asyncio.get_event_loop()
+tasks = [wget(host) for host in ['www.sina.com.cn', 'www.sohu.com', 'www.163.com']]
+loop.run_until_complete(asyncio.wait(tasks))
+loop.close()
+```
+
+#### `async`和`await`
+1. python3.5以后对`coroutione`作简化的新语法
+2. 例子：
+```python
+@asyncio.coroutine
+def hello():
+    print("Hello world!")
+    r = yield from asyncio.sleep(1)
+    print("Hello again!")
+# 变成
+import asyncios
+async def hello():
+    print("Hello world!")
+    r = await asyncio.sleep(1)
+    print("Hello again!")
+```
+
+#### `aiohttp`
+1. asyncio实现了TCP、UDP、SSL等协议，aiohttp则是基于asyncio实现的HTTP框架。
+2. 例子：
+```python
+import asyncio
+
+from aiohttp import web
+
+async def index(request):
+    await asyncio.sleep(0.5)
+    return web.Response(body=b'<h1>Index</h1>')
+
+async def hello(request):
+    await asyncio.sleep(0.5)
+    text = '<h1>hello, %s!</h1>' % request.match_info['name']
+    return web.Response(body=text.encode('utf-8'))
+
+async def init(loop):
+    app = web.Application(loop=loop)
+    app.router.add_route('GET', '/', index)
+    app.router.add_route('GET', '/hello/{name}', hello)
+    srv = await loop.create_server(app.make_handler(), '127.0.0.1', 8000)
+    print('Server started at http://127.0.0.1:8000...')
+    return srv
+
+loop = asyncio.get_event_loop()
+loop.run_until_complete(init(loop))
+loop.run_forever()
+```
+注：注意aiohttp的初始化函数init()也是一个coroutine，loop.create_server()则利用asyncio创建TCP服务。
