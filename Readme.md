@@ -828,6 +828,7 @@ Task 4 runs 1.91 seconds.
 All subprocesses done.
 ```
 注：对Pool对象调用join()方法会等待所有子进程执行完毕，调用join()之前必须先调用close()，调用close()之后就不能继续添加新的Process了。（Pool的默认大小是CPU的核数）
+
 4. 进程间通信：`Queue`、`Pipes`方式交换数据
 ```python
 from multiprocessing import Process, Queue
@@ -871,4 +872,369 @@ Put B to queue...
 Get B from queue.
 Put C to queue...
 Get C from queue.
+```
+注：`Queue`等内部自动实现了“锁”机制
+
+#### 多线程
+1. `_thread`和`threading`模块，前者是低级模块，后者是高级模块，对前者进行了封装
+```python
+import time, threading
+
+# 新线程执行的代码:
+def loop():
+    print('thread %s is running...' % threading.current_thread().name)
+    n = 0
+    while n < 5:
+        n = n + 1
+        print('thread %s >>> %s' % (threading.current_thread().name, n))
+        time.sleep(1)
+    print('thread %s ended.' % threading.current_thread().name)
+
+print('thread %s is running...' % threading.current_thread().name)
+ts = threading.Thread(target=loop, name='LoopThread')
+t.start()
+t.join()
+print('thread %s ended.' % threading.current_thread().name)
+
+# output
+thread MainThread is running...
+thread LoopThread is running...
+thread LoopThread >>> 1
+thread LoopThread >>> 2
+thread LoopThread >>> 3
+thread LoopThread >>> 4
+thread LoopThread >>> 5
+thread LoopThread ended.
+thread MainThread ended.
+```
+注:`current_thread()`函数，永远返回当前线程的实例。主线程实例的名字叫MainThread，子线程的名字在创建时指定，我们用LoopThread命名子线程。名字仅仅在打印时用来显示，完全没有其他意义，如果不起名字Python就自动给线程命名为Thread-1，Thread-2……
+
+2. 多线程和多进程最大的不同在于，多进程中，同一个变量，各自有一份拷贝存在于每个进程中，互不影响，而多线程中，所有变量都由所有线程共享，所以，任何一个变量都可以被任何一个线程修改，因此，线程之间共享数据最大的危险在于多个线程同时改一个变量，把内容给改乱了。所以对于多线程，需要用到`Lock`，即`threading.Lock()`
+```python
+import time, threading
+
+# 假定这是你的银行存款:
+balance = 0
+lock = threading.Lock() # 互斥锁
+
+def change_it(n):
+    # 先存后取，结果应该为0:
+    global balance
+    balance = balance + n
+    balance = balance - n
+
+def run_thread(n):
+    for i in range(100000):
+        # 获取锁
+        lock.acquire()
+        try：
+            change_it(n)
+        finally：
+            # 释放锁
+            lock.release()
+
+t1 = threading.Thread(target=run_thread, args=(5,))
+t2 = threading.Thread(target=run_thread, args=(8,))
+t1.start()
+t2.start()
+t1.join()
+t2.join()
+print(balance)
+```
+注：当多个线程同时执行lock.acquire()时，只有一个线程能成功地获取锁，然后继续执行代码，其他线程就继续等待直到获得锁为止。
+
+3. C、C++、Java：对于多核CPU，一个死循环线程会100%占用一个CPU；两个死循环线程，在多核CPU中，可以监控到会占用200%的CPU，也就是占用两个CPU核心；要想把N核CPU的核心全部跑满，就必须启动N个死循环线程
+4. 因为Python的线程虽然是真正的线程，但解释器执行代码时，有一个**GIL锁**：**Global Interpreter Lock**，任何Python线程执行前，必须先获得GIL锁，然后，每执行100条字节码，解释器就自动释放GIL锁，让别的线程有机会执行。这个GIL全局锁实际上把所有线程的执行代码都给上了锁，所以，多线程在Python中只能交替执行，即使100个线程跑在100核CPU上，也只能用到1个核。
+5. Python虽然不能利用多线程实现多核任务，但可以通过多进程实现多核任务。多个Python进程有各自独立的GIL锁，互不影响。
+6. ThreadLocal：用于解决线程局部变量的问题——解决了参数在一个线程中各个函数之间互相传递的问题。
+```python
+import threading
+
+# 创建全局ThreadLocal对象:
+local_school = threading.local()
+
+def process_student():
+    # 获取当前线程关联的student:
+    std = local_school.student
+    print('Hello, %s (in %s)' % (std, threading.current_thread().name))
+
+def process_thread(name):
+    # 绑定ThreadLocal的student:
+    local_school.student = name
+    process_student()
+
+t1 = threading.Thread(target= process_thread, args=('Alice',), name='Thread-A')
+t2 = threading.Thread(target= process_thread, args=('Bob',), name='Thread-B')
+t1.start()
+t2.start()
+t1.join()
+t2.join()
+
+# output
+Hello, Alice (in Thread-A)
+Hello, Bob (in Thread-B)
+```
+注：全局变量local_school就是一个ThreadLocal对象，每个Thread对它都可以读写student属性，但互不影响。你可以把local_school看成全局变量，但每个属性如local_school.student都是线程的局部变量，可以任意读写而互不干扰，也不用管理锁的问题，ThreadLocal内部会处理。**一个ThreadLocal变量虽然是全局变量，但每个线程都只能读写自己线程的独立副本，互不干扰。**
+
+7. 多线程 vs. 多进程：（多任务——Master-Worker模式：Master负责分配任务，Worker负责执行任务）
+    1. 多进程：
+        1. 优点：
+            1. 稳定性高——一个子进程奔溃不会影响主进程和其它子进程（主进程挂了则所有进程全挂了）
+        2. 缺点：
+            1. 创建进程代价大
+            2. 占用系统资源开销大——系统能同时运行的进程数是有效的
+    2. 多线程：
+        1. 优点：
+            1. 执行效率比多进程高
+        2. 缺点：
+            1. 不稳定性高——一个线程挂掉都可能造成整个进程奔溃，因为所有线程共享进程内存
+8. 进程/线程切换：多任务一旦到达一定限度，任务执行效率就会急剧下降
+9. 计算密集型 vs. IO密集型
+    1. 计算密集型：指要进行大量计算的任务，**主要耗费CPU资源**。这类任务不建议采用多任务完成，因为任务越多，花在任务切换的时间就越多，CPU执行任务任务的效率就越低。**故要高效利用CPU，计算密集型任务同事进行的数量应当等于CPU的核心数**
+    2. IO密集型：涉及到**网络、磁盘IO**的任务都是IO密集型任务，这类任务的特点是**CPU消耗很少，任务的大部分时间都在等待IO操作完成**。对于这类任务，任务越多（有一个限度），CPU效率越高。常见的大部分任务都是IO密集型的，如Web应用
+10. 异步IO：若充分利用操作系统提供的异步IO支持，就可以用**单进程单线程模型来执行多任务**——**事件驱动模型**——该模型能高效地支持多任务，是因为对于计算密集型，任务越少，执行效率越高。由于采用了异步IO，所以就可以忽略IO密集型的影响，只关注计算密集型即可！
+11. 协程：单线程的一幕编程模型
+12. 分布式进程：`managers`模块
+```python
+# ************************ #
+# **** task_master.py **** #
+# ************************ #
+
+import random, time, queue
+from multiprocessing.managers import BaseManager
+
+# 发送任务的队列:
+task_queue = queue.Queue()
+# 接收结果的队列:
+result_queue = queue.Queue()
+
+# 从BaseManager继承的QueueManager:
+class QueueManager(BaseManager):
+    pass
+
+# 把两个Queue都注册到网络上, callable参数关联了Queue对象:
+QueueManager.register('get_task_queue', callable=lambda: task_queue)
+QueueManager.register('get_result_queue', callable=lambda: result_queue)
+# 绑定端口5000, 设置验证码'abc':
+manager = QueueManager(address=('', 5000), authkey=b'abc')
+# 启动Queue:
+manager.start()
+# 获得通过网络访问的Queue对象:
+task = manager.get_task_queue()
+result = manager.get_result_queue()
+# 放几个任务进去:
+for i in range(10):
+    n = random.randint(0, 10000)
+    print('Put task %d...' % n)
+    task.put(n)
+# 从result队列读取结果:
+print('Try get results...')
+for i in range(10):
+    r = result.get(timeout=10)
+    print('Result: %s' % r)
+# 关闭:
+manager.shutdown()
+print('master exit.')
+
+
+# ************************ #
+# **** task_worker.py **** #
+# ************************ #
+
+import time, sys, queue
+from multiprocessing.managers import BaseManager
+
+# 创建类似的QueueManager:
+class QueueManager(BaseManager):
+    pass
+
+# 由于这个QueueManager只从网络上获取Queue，所以注册时只提供名字:
+QueueManager.register('get_task_queue')
+QueueManager.register('get_result_queue')
+
+# 连接到服务器，也就是运行task_master.py的机器:
+server_addr = '127.0.0.1'
+print('Connect to server %s...' % server_addr)
+# 端口和验证码注意保持与task_master.py设置的完全一致:
+m = QueueManager(address=(server_addr, 5000), authkey=b'abc')
+# 从网络连接:
+m.connect()
+# 获取Queue的对象:
+task = m.get_task_queue()
+result = m.get_result_queue()
+# 从task队列取任务,并把结果写入result队列:
+for i in range(10):
+    try:
+        n = task.get(timeout=1)
+        print('run task %d * %d...' % (n, n))
+        r = '%d * %d = %d' % (n, n, n*n)
+        time.sleep(1)
+        result.put(r)
+    except Queue.Empty:
+        print('task queue is empty.')
+# 处理结束:
+print('worker exit.')
+```
+<center>
+<figure>
+    <img src="screenshot/分布式进程.png" />
+    <figcaption>注意Queue的作用是用来传递任务和接收结果，每个任务的描述数据量要尽量小。比如发送一个处理日志文件的任务，就不要发送几百兆的日志文件本身，而是发送日志文件存放的完整路径，由Worker进程再去共享的磁盘上读取文件。</figcaption>
+</figure>
+</center>
+
+### 正则匹配
+1.`re`模块
+```python
+>>> import re
+# 匹配
+>>> re.match(r'^\d{3}\-\d{3,8}$', '010-12345')
+<_sre.SRE_Match object; span=(0, 9), match='010-12345'>
+>>> re.match(r'^\d{3}\-\d{3,8}$', '010 12345')
+# 切分
+>>> re.split(r'\s+', 'a b   c')
+['a', 'b', 'c']
+>>> re.split(r'[\s\,\;]+', 'a,b;; c  d')
+['a', 'b', 'c', 'd']
+# 字符串分组，用到'()'
+>>> m = re.match(r'^(\d{3})-(\d{3,8})$', '010-12345')
+>>> m
+<_sre.SRE_Match object; span=(0, 9), match='010-12345'>
+>>> m.group(0)
+'010-12345'
+>>> m.group(1)
+'010'
+>>> m.group(2)
+'12345'
+```
+注：正则匹配默认是贪婪匹配，也就是匹配尽可能多的字符。如下：
+```python
+>>> re.match(r'^(\d+)(0*)$', '102300').groups()
+('102300', '')
+```
+由于\d+采用贪婪匹配，直接把后面的0全部匹配了，结果0*只能匹配空字符串了。
+
+必须让\d+采用非贪婪匹配（也就是尽可能少匹配），才能把后面的0匹配出来，加个?就可以让\d+采用非贪婪匹配：
+```python
+>>> re.match(r'^(\d+?)(0*)$', '102300').groups()
+('1023', '00')
+```
+
+2. `re`模块会先编译正则表达式，而后再匹配。若该正则重复使用几千次以上，可采用**预编译**方式提高效率，如下：
+```python
+>>> import re
+# 编译:
+>>> re_telephone = re.compile(r'^(\d{3})-(\d{3,8})$')
+# 使用：
+>>> re_telephone.match('010-12345').groups()
+('010', '12345')
+>>> re_telephone.match('010-8086').groups()
+('010', '8086')
+```
+
+### 常用模块
+1. `datetime`:
+```python
+>>> from datetime import datetime
+# 获取当前datetime
+>>> now = datetime.now()
+>>> print(now)
+2015-05-18 16:28:07.198690
+
+# 用指定日期时间创建datetime
+>>> dt = datetime(2015, 4, 19, 12, 20)
+>>> print(dt)
+2015-04-19 12:20:00
+
+# datetime转换为timestamp
+>>> dt.timestamp()
+1429417200.0 # 注意Python的timestamp是一个浮点数。如果有小数位，小数位表示毫秒数
+
+# timestamp转换为datetime
+>>> t = 1429417200.0
+>>> print(datetime.fromtimestamp(t)) # 转换是在timestamp和本地时间做转换
+2015-04-19 12:20:00
+
+# str转换为datetime
+>>> cday = datetime.strptime('2015-6-1 18:19:59', '%Y-%m-%d %H:%M:%S')
+>>> print(cday)
+2015-06-01 18:19:59
+
+# datetime转换为str
+>>> now = datetime.now()
+>>> print(now.strftime('%a, %b %d %H:%M'))
+Mon, May 05 16:28
+
+# datetime加减
+>>> from datetime import datetime, timedelta
+>>> now = datetime.now()
+>>> now
+>>> from datetime import datetime, timedelta
+>>> now = datetime.now()
+>>> now
+datetime.datetime(2015, 5, 18, 16, 57, 3, 540997)
+>>> now + timedelta(hours=10)
+datetime.datetime(2015, 5, 19, 2, 57, 3, 540997)
+>>> now - timedelta(days=1)
+datetime.datetime(2015, 5, 17, 16, 57, 3, 540997)
+>>> now + timedelta(days=2, hours=12)
+datetime.datetime(2015, 5, 21, 4, 57, 3, 540997)
+```
+
+#### `collections`模块
+1. 该模块是有个模块集合，即包含了很多有用的子模块
+
+##### namedtuple
+1. namedtuple是一个函数，它用来创建一个自定义的tuple对象，并且规定了tuple元素的个数，并可以用属性而不是索引来引用tuple的某个元素。
+这样一来，我们用namedtuple可以很方便地定义一种数据类型，它具备tuple的不变性，又可以根据属性来引用，使用十分方便。
+2. 例子：
+```python
+>>> from collections import namedtuple
+>>> Point = namedtuple('Point', ['x', 'y'])
+>>> p = Point(1, 2)
+>>> p.x
+1
+>>> p.y
+2
+```
+
+##### `deque`
+1. 双向列表，高效实现插入和删除。提供了`append()、pop()、appendleft()、popleft()`方法。（lit是线性存储，当数据量大时，插入和删除效率就很低）
+2. 例子：
+```python
+>>> from collections import deque
+>>> q = deque(['a', 'b', 'c'])
+>>> q.append('x')
+>>> q.appendleft('y')
+>>> q
+deque(['y', 'a', 'b', 'c', 'x'])
+```
+
+##### `defaultdict`
+1. 使用dict时，如果引用的Key不存在，就会抛出KeyError。如果希望key不存在时，返回一个默认值，就可以用defaultdict（除了在Key不存在时返回默认值，defaultdict的其他行为跟dict是完全一样的。）
+2. 使用例子：
+```python
+>>> from collections import defaultdict
+# 指定默认值
+>>> dd = defaultdict(lambda: 'N/A')
+>>> dd['key1'] = 'abc'
+>>> dd['key1'] # key1存在
+'abc'
+>>> dd['key2'] # key2不存在，返回默认值
+'N/A'
+```
+
+##### `OrderedDict`
+1. 如果要保持Key的顺序，可以用OrderedDict
+
+##### `Count`
+1. 简单的计数器，是dict的一个子类
+2. 例子：
+```python
+>>> from collections import Counter
+>>> c = Counter()
+>>> for ch in 'programming':
+...     c[ch] = c[ch] + 1
+...
+>>> c
+Counter({'g': 2, 'm': 2, 'r': 2, 'a': 1, 'i': 1, 'o': 1, 'n': 1, 'p': 1})
 ```
